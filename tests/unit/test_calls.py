@@ -9,9 +9,11 @@ from fastapi.testclient import TestClient
 
 from vaani.agent import AgentReply, AgentRunner
 from vaani.calls import CallManager
+from vaani.ledger import CallLog
 from vaani.main import create_app
 from vaani.sessions import InMemorySessionStore
 from vaani.speech import SarvamError, SpeechAudio, Transcript
+from vaani.tenancy import InMemoryTenantStore, Tenant
 
 
 class FakeProvider:
@@ -47,9 +49,14 @@ class FakeWebSocket:
         self.sent_json: list[dict[str, Any]] = []
         self.sent_bytes: list[bytes] = []
         self.accepted = False
+        self.closed_code: int | None = None
 
     async def accept(self) -> None:
         self.accepted = True
+
+    async def close(self, code: int = 1000, reason: str | None = None) -> None:
+        del reason
+        self.closed_code = code
 
     async def receive(self) -> dict[str, Any]:
         if self._incoming:
@@ -64,23 +71,32 @@ class FakeWebSocket:
 
 
 def make_manager(
-    provider: FakeProvider | None = None,
-) -> tuple[CallManager, FakeProvider, InMemorySessionStore]:
+    provider: FakeProvider | None = None, escalated_reply: bool = False
+) -> tuple[CallManager, FakeProvider, InMemorySessionStore, CallLog]:
     fake = provider or FakeProvider()
     store = InMemorySessionStore()
+    tenants = InMemoryTenantStore(
+        [Tenant(id="t1", display_name="T1"), Tenant(id="t9", display_name="T9")]
+    )
+    log = CallLog()
 
     class EchoAgent(AgentRunner):
         def __init__(self) -> None:
             pass
 
         async def run(self, text: str, language: str, tenant: str) -> AgentReply:
-            return AgentReply(text=text, citations=[], escalated=False)
+            return AgentReply(text=text, citations=[], escalated=escalated_reply)
 
-    return CallManager(fake, store, EchoAgent()), fake, store  # type: ignore[arg-type]
+    return (
+        CallManager(fake, store, EchoAgent(), tenants, log),  # type: ignore[arg-type]
+        fake,
+        store,
+        log,
+    )
 
 
 async def test_audio_frame_gets_reply_and_summary() -> None:
-    manager, _, store = make_manager()
+    manager, _, store, _log = make_manager()
     ws = FakeWebSocket([{"bytes": b"\x01\x02\x03"}, {"text": '{"type": "end"}'}])
     await manager.handle(ws, "t1")  # type: ignore[arg-type]
     assert ws.accepted
@@ -100,7 +116,7 @@ async def test_audio_frame_gets_reply_and_summary() -> None:
 async def test_busy_frame_dropped_and_counted() -> None:
     provider = FakeProvider()
     provider.block = asyncio.Event()
-    manager, _, store = make_manager(provider)
+    manager, _, store, _log = make_manager(provider)
     ws = FakeWebSocket([{"bytes": b"a"}, {"bytes": b"b"}])
     await manager.handle(ws, "t1")  # type: ignore[arg-type]
     assert ws.sent_json[0] == {"type": "dropped", "sequence": 2}
@@ -108,7 +124,7 @@ async def test_busy_frame_dropped_and_counted() -> None:
 
 
 async def test_malformed_control_keeps_call_alive() -> None:
-    manager, _, _ = make_manager()
+    manager, _, _, _ = make_manager()
     ws = FakeWebSocket([{"text": "not-json"}, {"text": '{"type": "end"}'}])
     await manager.handle(ws, "t1")  # type: ignore[arg-type]
     assert ws.sent_json[0] == {"type": "error", "stage": "control"}
@@ -116,7 +132,7 @@ async def test_malformed_control_keeps_call_alive() -> None:
 
 
 async def test_unknown_control_type_rejected() -> None:
-    manager, _, _ = make_manager()
+    manager, _, _, _ = make_manager()
     ws = FakeWebSocket([{"text": '{"type": "zap"}'}, {"text": '{"type": "end"}'}])
     await manager.handle(ws, "t1")  # type: ignore[arg-type]
     assert ws.sent_json[0] == {"type": "error", "stage": "control"}
@@ -124,7 +140,7 @@ async def test_unknown_control_type_rejected() -> None:
 
 
 async def test_neither_bytes_nor_text_treated_as_bad_control() -> None:
-    manager, _, _ = make_manager()
+    manager, _, _, _ = make_manager()
     ws = FakeWebSocket([{"type": "websocket.close"}, {"text": '{"type": "end"}'}])
     await manager.handle(ws, "t1")  # type: ignore[arg-type]
     assert ws.sent_json[0] == {"type": "error", "stage": "control"}
@@ -133,7 +149,7 @@ async def test_neither_bytes_nor_text_treated_as_bad_control() -> None:
 async def test_transcribe_failure_reports_error_and_continues() -> None:
     provider = FakeProvider()
     provider.fail_transcribe = SarvamError("boom")
-    manager, _, _ = make_manager(provider)
+    manager, _, _, _ = make_manager(provider)
     ws = FakeWebSocket([{"bytes": b"a"}, {"text": '{"type": "end"}'}])
     await manager.handle(ws, "t1")  # type: ignore[arg-type]
     assert ws.sent_json[0] == {
@@ -148,7 +164,7 @@ async def test_transcribe_failure_reports_error_and_continues() -> None:
 async def test_synthesize_failure_reports_error() -> None:
     provider = FakeProvider()
     provider.fail_synthesize = SarvamError("no-voice")
-    manager, _, _ = make_manager(provider)
+    manager, _, _, _ = make_manager(provider)
     ws = FakeWebSocket([{"bytes": b"a"}, {"text": '{"type": "end"}'}])
     await manager.handle(ws, "t1")  # type: ignore[arg-type]
     assert ws.sent_json[0]["stage"] == "synthesize"
@@ -158,24 +174,51 @@ async def test_synthesize_failure_reports_error() -> None:
 async def test_disconnect_mid_processing_cleans_up() -> None:
     provider = FakeProvider()
     provider.block = asyncio.Event()
-    manager, _, store = make_manager(provider)
+    manager, _, store, _log = make_manager(provider)
     ws = FakeWebSocket([{"bytes": b"a"}])
     await manager.handle(ws, "t1")  # type: ignore[arg-type]
     assert store.count() == 0
 
 
 async def test_disconnect_idle_cleans_up() -> None:
-    manager, _, store = make_manager()
+    manager, _, store, _log = make_manager()
     ws = FakeWebSocket([])
     await manager.handle(ws, "t1")  # type: ignore[arg-type]
     assert store.count() == 0
     assert ws.accepted
 
 
+async def test_unknown_tenant_closes_with_4403() -> None:
+    manager, _, store, log = make_manager()
+    ws = FakeWebSocket([{"bytes": b"a"}])
+    await manager.handle(ws, "ghost")  # type: ignore[arg-type]
+    assert ws.closed_code == 4403
+    assert store.count() == 0
+    assert log.count() == 0
+
+
+async def test_completed_call_is_logged() -> None:
+    manager, _, _, log = make_manager()
+    ws = FakeWebSocket([{"bytes": b"\x01\x02\x03"}, {"text": '{"type": "end"}'}])
+    await manager.handle(ws, "t1")  # type: ignore[arg-type]
+    assert log.count() == 1
+    record = log.list_recent()[0]
+    assert (record.tenant, record.frames_received, record.errors) == ("t1", 1, 0)
+    assert record.transcript_chars == len("heard-3")
+    assert not record.escalated
+
+
+async def test_escalated_call_is_flagged_in_log() -> None:
+    manager, _, _, log = make_manager(escalated_reply=True)
+    ws = FakeWebSocket([{"bytes": b"\x01"}, {"text": '{"type": "end"}'}])
+    await manager.handle(ws, "t1")  # type: ignore[arg-type]
+    assert log.list_recent()[0].escalated
+
+
 async def test_end_waits_for_inflight_frame() -> None:
     provider = FakeProvider()
     provider.block = asyncio.Event()
-    manager, _, _ = make_manager(provider)
+    manager, _, _, _ = make_manager(provider)
     ws = FakeWebSocket([{"bytes": b"a"}, {"text": '{"type": "end"}'}])
 
     async def releaser() -> None:
@@ -193,7 +236,7 @@ def test_real_transport_smoke() -> None:
     provider = FakeProvider()
     app = create_app(provider=provider)  # type: ignore[arg-type]
     client = TestClient(app)
-    with client.websocket_connect("/v1/calls/stream?tenant=t9") as ws:
+    with client.websocket_connect("/v1/calls/stream?tenant=demo-nbfc") as ws:
         ws.send_bytes(b"\x01\x02")
         first = ws.receive_json()
         assert first["type"] == "reply"

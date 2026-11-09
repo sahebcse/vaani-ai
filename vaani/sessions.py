@@ -18,6 +18,7 @@ class CallSession:
     busy: bool = False
     task: asyncio.Task[None] | None = None
     next_sequence: int = 1
+    escalated: bool = False
 
 
 class SessionStore:

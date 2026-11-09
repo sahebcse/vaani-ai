@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     sarvam_api_key: str = "local-mock"
     sarvam_timeout_seconds: float = 10.0
     retriever: str = "keyword"
+    admin_key: str = "change-me-local-only"
 
     default_tenant: str = "demo-nbfc"
     eval_score_threshold: float = 0.7

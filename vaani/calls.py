@@ -17,8 +17,10 @@ from typing import Any
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from vaani.agent import AgentRunner
+from vaani.ledger import CallLog, CallRecord
 from vaani.sessions import CallSession, SessionStore
 from vaani.speech import SarvamError, SpeechProvider
+from vaani.tenancy import TenantStore
 
 router = APIRouter()
 
@@ -32,14 +34,24 @@ async def call_stream(websocket: WebSocket) -> None:
 
 class CallManager:
     def __init__(
-        self, provider: SpeechProvider, sessions: SessionStore, agent: AgentRunner
+        self,
+        provider: SpeechProvider,
+        sessions: SessionStore,
+        agent: AgentRunner,
+        tenants: TenantStore,
+        call_log: CallLog,
     ) -> None:
         self._provider = provider
         self._sessions = sessions
         self._agent = agent
+        self._tenants = tenants
+        self._call_log = call_log
 
     async def handle(self, websocket: WebSocket, tenant: str) -> None:
         await websocket.accept()
+        if self._tenants.get(tenant) is None:
+            await websocket.close(code=4403)
+            return
         session = self._sessions.create(tenant)
         try:
             while True:
@@ -55,6 +67,17 @@ class CallManager:
                     if done:
                         break
         finally:
+            self._call_log.append(
+                CallRecord(
+                    call_id=session.call_id,
+                    tenant=session.tenant,
+                    frames_received=session.frames_received,
+                    frames_dropped=session.frames_dropped,
+                    errors=session.errors,
+                    transcript_chars=sum(len(p) for p in session.transcript_parts),
+                    escalated=session.escalated,
+                )
+            )
             await self._cleanup(session)
 
     async def _on_audio(self, session: CallSession, websocket: WebSocket, data: bytes) -> None:
@@ -81,6 +104,8 @@ class CallManager:
             return
         session.transcript_parts.append(transcript.text)
         reply = await self._agent.run(transcript.text, transcript.language, session.tenant)
+        if reply.escalated:
+            session.escalated = True
         try:
             audio = await self._provider.asynthesize(reply.text, transcript.language)
         except SarvamError as exc:
