@@ -12,3 +12,4 @@ numpy==1.26.4
 apscheduler==3.10.4
 prometheus-client==0.21.1
 python-multipart==0.0.20
+websockets==15.0.1
