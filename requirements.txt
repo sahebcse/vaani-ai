@@ -1,0 +1,14 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic-settings==2.7.0
+httpx==0.28.1
+redis==5.2.1
+asyncpg==0.30.0
+aiokafka==0.12.0
+opensearch-py==2.8.0
+langchain==0.3.13
+langgraph==0.2.39
+numpy==1.26.4
+apscheduler==3.10.4
+prometheus-client==0.21.1
+python-multipart==0.0.20
