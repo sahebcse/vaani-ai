@@ -63,6 +63,21 @@ jobs:
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
+  chaos:
+    name: Chaos (Testcontainers, Docker)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12", cache: pip}
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: pytest tests/chaos -q -o addopts=""
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: chaos-logs
+          path: /tmp/chaos-*.log
+
   e2e:
     name: Compose + demo call
     runs-on: ubuntu-latest

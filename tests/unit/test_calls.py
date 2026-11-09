@@ -70,8 +70,21 @@ class FakeWebSocket:
         self.sent_bytes.append(data)
 
 
+class FakeEvents:
+    def __init__(self, fail: bool = False) -> None:
+        self.published: list[Any] = []
+        self.fail = fail
+
+    async def publish(self, event: Any) -> None:
+        if self.fail:
+            raise RuntimeError("kafka down")
+        self.published.append(event)
+
+
 def make_manager(
-    provider: FakeProvider | None = None, escalated_reply: bool = False
+    provider: FakeProvider | None = None,
+    escalated_reply: bool = False,
+    events: FakeEvents | None = None,
 ) -> tuple[CallManager, FakeProvider, InMemorySessionStore, CallLog]:
     fake = provider or FakeProvider()
     store = InMemorySessionStore()
@@ -89,7 +102,7 @@ def make_manager(
             return AgentReply(text=text, citations=[], escalated=escalated_reply)
 
     return (
-        CallManager(fake, store, EchoAgent(), tenants, log),  # type: ignore[arg-type]
+        CallManager(fake, store, EchoAgent(), tenants, log, events),  # type: ignore[arg-type]
         fake,
         store,
         log,
@@ -216,6 +229,23 @@ async def test_escalated_call_is_flagged_in_log() -> None:
     assert log.list_recent()[0].escalated
 
 
+async def test_events_published_on_call_end() -> None:
+    events = FakeEvents()
+    manager, _, _, _ = make_manager(events=events)
+    ws = FakeWebSocket([{"bytes": b"\x01"}, {"text": '{"type": "end"}'}])
+    await manager.handle(ws, "t1")  # type: ignore[arg-type]
+    assert len(events.published) == 1
+    assert events.published[0].tenant == "t1"
+
+
+async def test_event_publish_failure_does_not_break_call() -> None:
+    manager, _, _, log = make_manager(events=FakeEvents(fail=True))
+    ws = FakeWebSocket([{"bytes": b"\x01"}, {"text": '{"type": "end"}'}])
+    await manager.handle(ws, "t1")  # type: ignore[arg-type]
+    assert ws.sent_json[-1]["type"] == "summary"
+    assert log.count() == 1
+
+
 async def test_end_waits_for_inflight_frame() -> None:
     provider = FakeProvider()
     provider.block = asyncio.Event()
@@ -235,7 +265,8 @@ async def test_end_waits_for_inflight_frame() -> None:
 
 def test_real_transport_smoke() -> None:
     provider = FakeProvider()
-    app = create_app(provider=provider)  # type: ignore[arg-type]
+    events = FakeEvents()
+    app = create_app(provider=provider, events=events)  # type: ignore[arg-type]
     client = TestClient(app)
     with client.websocket_connect("/v1/calls/stream?tenant=demo-nbfc") as ws:
         ws.send_bytes(b"\x01\x02")
@@ -247,3 +278,5 @@ def test_real_transport_smoke() -> None:
         summary = ws.receive_json()
         assert summary["type"] == "summary"
         assert summary["frames_received"] == 1
+    assert len(events.published) == 1
+    assert events.published[0].tenant == "demo-nbfc"

@@ -1,0 +1,19 @@
+{
+  "name": "vaani-call-ledger-connector",
+  "config": {
+    "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+    "database.hostname": "postgres",
+    "database.port": "5432",
+    "database.user": "vaani",
+    "database.password": "vaani",
+    "database.dbname": "vaani",
+    "database.server.name": "vaani",
+    "table.include.list": "public.call_ledger",
+    "topic.prefix": "vaani",
+    "plugin.name": "pgoutput",
+    "slot.name": "vaani_ledger_slot",
+    "publication.name": "vaani_ledger_pub",
+    "publication.autocreate.mode": "filtered",
+    "tombstones.on.delete": "false"
+  }
+}

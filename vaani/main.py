@@ -7,6 +7,7 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from vaani import __version__, admin, calls
 from vaani.agent import AgentRunner
+from vaani.cdc import EventPublisher
 from vaani.config import Settings, get_settings
 from vaani.jobs import FeedbackStore, create_scheduler
 from vaani.ledger import CallLog
@@ -76,6 +77,7 @@ def _build_retriever(settings: Settings) -> Retriever:
 def create_app(
     provider: SpeechProvider | None = None,
     tenant: str | None = None,
+    events: EventPublisher | None = None,
 ) -> FastAPI:
     settings: Settings = get_settings()
     setup_logging(settings.log_level)
@@ -94,7 +96,14 @@ def create_app(
         InMemoryAccountStore(_demo_accounts()),
         MemoryEscalationSink(),
     )
-    app.state.call_manager = calls.CallManager(active, sessions, agent, tenants, call_log)
+    app.state.call_manager = calls.CallManager(
+        active,
+        sessions,
+        agent,
+        tenants,
+        call_log,
+        events or EventPublisher(settings.kafka_bootstrap_servers, "vaani.call-events"),
+    )
     app.state.tenants = tenants
     app.state.call_log = call_log
     app.state.agent = agent

@@ -19,6 +19,7 @@ from typing import Any
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from vaani.agent import AgentRunner
+from vaani.cdc import CallEvent, EventPublisher
 from vaani.ledger import CallLog, CallRecord
 from vaani.logging import bind
 from vaani.metrics import metrics
@@ -46,12 +47,14 @@ class CallManager:
         agent: AgentRunner,
         tenants: TenantStore,
         call_log: CallLog,
+        events: EventPublisher | None = None,
     ) -> None:
         self._provider = provider
         self._sessions = sessions
         self._agent = agent
         self._tenants = tenants
         self._call_log = call_log
+        self._events = events
 
     async def handle(self, websocket: WebSocket, tenant: str) -> None:
         await websocket.accept()
@@ -75,17 +78,23 @@ class CallManager:
                     if done:
                         break
         finally:
-            self._call_log.append(
-                CallRecord(
-                    call_id=session.call_id,
-                    tenant=session.tenant,
-                    frames_received=session.frames_received,
-                    frames_dropped=session.frames_dropped,
-                    errors=session.errors,
-                    transcript_chars=sum(len(p) for p in session.transcript_parts),
-                    escalated=session.escalated,
-                )
+            record = CallRecord(
+                call_id=session.call_id,
+                tenant=session.tenant,
+                frames_received=session.frames_received,
+                frames_dropped=session.frames_dropped,
+                errors=session.errors,
+                transcript_chars=sum(len(p) for p in session.transcript_parts),
+                escalated=session.escalated,
             )
+            self._call_log.append(record)
+            if self._events is not None:
+                try:
+                    await self._events.publish(CallEvent.from_record(record))
+                except Exception as exc:
+                    logger.warning(
+                        "event publish failed", extra=bind(session.call_id, error=str(exc))
+                    )
             metrics.record_call_end()
             logger.info("call ended", extra=bind(session.call_id, tenant=session.tenant))
             await self._cleanup(session)
