@@ -84,7 +84,8 @@ def make_manager(
         def __init__(self) -> None:
             pass
 
-        async def run(self, text: str, language: str, tenant: str) -> AgentReply:
+        async def run(self, text: str, language: str, tenant: str, style: str = "") -> AgentReply:
+            del style
             return AgentReply(text=text, citations=[], escalated=escalated_reply)
 
     return (

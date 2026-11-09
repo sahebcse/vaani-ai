@@ -107,3 +107,79 @@ def test_calls_list_empty_then_populated(app_client: TestClient) -> None:
     )
     calls = app_client.get("/v1/admin/calls", headers=headers).json()
     assert [c["call_id"] for c in calls] == ["c1"]
+
+
+def test_experiment_flow_and_report(app_client: TestClient) -> None:
+    headers = admin_headers(app_client)
+    assert app_client.get("/v1/admin/eval-report", headers=headers).status_code == 404
+    resp = app_client.post(
+        "/v1/admin/experiments",
+        json={"name": "tone", "prompts": ["concise", "detailed"]},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["winner"] in ("concise", "detailed")
+    assert body["runs"] == 3 * 2  # 3 fixture cases x 2 prompts
+    assert set(body["means"]) == {"concise", "detailed"}
+    report = app_client.get("/v1/admin/eval-report", headers=headers).json()
+    assert report["name"] == "tone"
+
+
+def test_experiment_needs_two_prompts(app_client: TestClient) -> None:
+    headers = admin_headers(app_client)
+    resp = app_client.post(
+        "/v1/admin/experiments", json={"name": "x", "prompts": ["only"]}, headers=headers
+    )
+    assert resp.status_code == 422
+
+
+def test_experiment_empty_dataset_rejected(
+    app_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("VAANI_EVAL_DATASET_PATH", "/nonexistent/d.jsonl")
+    headers = admin_headers(app_client)
+    resp = app_client.post(
+        "/v1/admin/experiments",
+        json={"name": "x", "prompts": ["a", "b"]},
+        headers=headers,
+    )
+    assert resp.status_code == 400
+
+
+def test_experiment_requires_admin(app_client: TestClient) -> None:
+    resp = app_client.post(
+        "/v1/admin/experiments",
+        json={"name": "x", "prompts": ["a", "b"]},
+    )
+    assert resp.status_code == 401
+
+
+def test_feedback_roundtrip(app_client: TestClient) -> None:
+    headers = admin_headers(app_client)
+    created = app_client.post(
+        "/v1/admin/feedback",
+        json={"call_id": "c9", "tenant": "t1", "helpful": True, "note": "great"},
+        headers=headers,
+    )
+    assert created.status_code == 201
+    listed = app_client.get("/v1/admin/feedback", headers=headers).json()
+    assert [(f["call_id"], f["helpful"]) for f in listed] == [("c9", True)]
+
+
+def test_viewer_can_use_feedback_but_not_experiments(app_client: TestClient) -> None:
+    resp = app_client.post(
+        "/v1/admin/tokens",
+        json={"tenant": "t1", "role": "viewer"},
+        headers={"X-Admin-Key": "test-key"},
+    )
+    viewer = {"Authorization": f"Bearer {resp.json()['token']}"}
+    assert app_client.get("/v1/admin/feedback", headers=viewer).status_code == 200
+    assert (
+        app_client.post(
+            "/v1/admin/experiments",
+            json={"name": "x", "prompts": ["a", "b"]},
+            headers=viewer,
+        ).status_code
+        == 403
+    )

@@ -1,0 +1,3 @@
+{"transcript": "मेरा लोन का पेमेंट बाकी है", "language": "hi", "tenant": "demo-nbfc", "expected_keywords": ["किस्त", "7"]}
+{"transcript": "my account balance is overdue", "language": "en", "tenant": "demo-nbfc", "expected_keywords": ["balance", "7"]}
+{"transcript": "talk to a human please", "language": "en", "tenant": "demo-nbfc", "expected_keywords": ["human"]}

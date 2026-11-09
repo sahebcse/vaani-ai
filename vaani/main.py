@@ -1,10 +1,13 @@
 """ASGI entrypoint. Routers land here as units merge; keep this file thin."""
 
+import os
+
 from fastapi import FastAPI
 
 from vaani import __version__, admin, calls
 from vaani.agent import AgentRunner
 from vaani.config import Settings, get_settings
+from vaani.jobs import FeedbackStore, create_scheduler
 from vaani.ledger import CallLog
 from vaani.llm import MockResponder
 from vaani.sessions import InMemorySessionStore
@@ -21,8 +24,6 @@ from vaani.tools import (
 
 
 def _load_policy_docs() -> list[PolicyDoc]:
-    import os
-
     here = os.path.dirname(os.path.abspath(__file__))
     base = os.path.join(os.path.dirname(here), "fixtures", "policies")
     docs: list[PolicyDoc] = []
@@ -92,9 +93,16 @@ def create_app(
     app.state.call_manager = calls.CallManager(active, sessions, agent, tenants, call_log)
     app.state.tenants = tenants
     app.state.call_log = call_log
+    app.state.agent = agent
+    app.state.eval_report = None
+    app.state.feedback = FeedbackStore()
     app.state.default_tenant = tenant or settings.default_tenant
     app.include_router(calls.router)
     app.include_router(admin.router)
+
+    if os.environ.get("VAANI_SCHEDULER") == "on":
+        scheduler = create_scheduler(call_log, settings.archive_path)
+        scheduler.start()
 
     @app.get("/healthz")
     def healthz() -> dict[str, object]:

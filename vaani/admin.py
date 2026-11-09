@@ -9,10 +9,18 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from vaani.auth import ADMIN_ROLE, AuthError, Principal, issue_token, verify_token
 from vaani.config import Settings, get_settings
+from vaani.eval import (
+    AgentPromptRunner,
+    ExperimentReport,
+    KeywordJudge,
+    load_dataset,
+    run_experiment,
+)
+from vaani.jobs import Feedback, FeedbackStore
 from vaani.ledger import CallLog, CallRecord
 from vaani.tenancy import DuplicateTenantError, Tenant, TenantStore
 
@@ -56,6 +64,32 @@ class CallRecordOut(BaseModel):
     errors: int
     transcript_chars: int
     escalated: bool
+
+
+class ExperimentRequest(BaseModel):
+    name: str
+    prompts: list[str] = Field(min_length=2)
+
+
+class ExperimentOut(BaseModel):
+    name: str
+    means: dict[str, float]
+    winner: str
+    runs: int
+
+
+class FeedbackIn(BaseModel):
+    call_id: str
+    tenant: str
+    helpful: bool
+    note: str = ""
+
+
+class FeedbackOut(BaseModel):
+    call_id: str
+    tenant: str
+    helpful: bool
+    note: str
 
 
 def _settings() -> Settings:
@@ -142,6 +176,67 @@ async def set_voice(
     if updated is None:
         raise HTTPException(status_code=404, detail="unknown tenant")
     return updated
+
+
+@router.post("/experiments", response_model=ExperimentOut)
+async def run_experiment_endpoint(
+    body: ExperimentRequest,
+    request: Request,
+    principal: Principal = Depends(require_admin),  # noqa: ARG001
+    settings: Settings = Depends(_settings),
+) -> ExperimentOut:
+    agent = request.app.state.agent
+    dataset = load_dataset(settings.eval_dataset_path)
+    try:
+        report = await run_experiment(
+            body.name, body.prompts, dataset, AgentPromptRunner(agent), KeywordJudge()
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    request.app.state.eval_report = report
+    return ExperimentOut(
+        name=report.name, means=report.means, winner=report.winner, runs=report.runs
+    )
+
+
+@router.get("/eval-report", response_model=ExperimentOut)
+async def get_eval_report(
+    request: Request,
+    principal: Principal = Depends(current_principal),  # noqa: ARG001
+) -> ExperimentOut:
+    report: ExperimentReport | None = request.app.state.eval_report
+    if report is None:
+        raise HTTPException(status_code=404, detail="no experiment run yet")
+    return ExperimentOut(
+        name=report.name, means=report.means, winner=report.winner, runs=report.runs
+    )
+
+
+@router.post("/feedback", response_model=FeedbackOut, status_code=201)
+async def post_feedback(
+    body: FeedbackIn,
+    request: Request,
+    principal: Principal = Depends(current_principal),  # noqa: ARG001
+) -> Feedback:
+    store: FeedbackStore = request.app.state.feedback
+    return store.record(
+        Feedback(
+            call_id=body.call_id,
+            tenant=body.tenant,
+            helpful=body.helpful,
+            note=body.note,
+        )
+    )
+
+
+@router.get("/feedback", response_model=list[FeedbackOut])
+async def list_feedback(
+    request: Request,
+    principal: Principal = Depends(current_principal),  # noqa: ARG001
+    limit: int = 50,
+) -> list[Feedback]:
+    store: FeedbackStore = request.app.state.feedback
+    return store.list_recent(limit)
 
 
 @router.post("/tokens", response_model=TokenResponse)

@@ -30,6 +30,7 @@ class AgentState(TypedDict, total=False):
     text: str
     language: str
     tenant: str
+    style: str
     intent: str
     observation: str
     citations: list[str]
@@ -100,16 +101,18 @@ class AgentRunner:
         reply = await self._responder.complete(
             _RESPOND_SYSTEM,
             f"intent={state.get('intent', 'chitchat')} "
-            f"observation={state.get('observation', '')}",
+            f"observation={state.get('observation', '')} "
+            f"style={state.get('style', '')}",
         )
         return {"reply": reply, "escalated": state.get("intent") == "escalate"}
 
-    async def run(self, text: str, language: str, tenant: str) -> AgentReply:
+    async def run(self, text: str, language: str, tenant: str, style: str = "") -> AgentReply:
         final = await self._graph.ainvoke(
             {
                 "text": text,
                 "language": language,
                 "tenant": tenant,
+                "style": style,
                 "citations": [],
             }
         )

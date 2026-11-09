@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     sarvam_timeout_seconds: float = 10.0
     retriever: str = "keyword"
     admin_key: str = "change-me-local-only"
+    eval_dataset_path: str = "fixtures/eval/dataset.jsonl"
+    archive_path: str = "var/call-archive/calls.jsonl"
 
     default_tenant: str = "demo-nbfc"
     eval_score_threshold: float = 0.7
