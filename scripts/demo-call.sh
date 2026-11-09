@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Unit 3: full demo call over WebSocket. Mock-only probe kept for CI speed.
+# Unit 5: ingest policies into OpenSearch, then run the full demo call.
 set -euo pipefail
-BASE="${BASE_URL:-http://localhost:8080}"
-MOCK="${MOCK_URL:-http://localhost:8001}"
+OPENSEARCH_URL="${OPENSEARCH_URL:-http://localhost:9200}"
+BASE_URL="${BASE_URL:-http://localhost:8080}"
 if [ "${1:-}" = "--mock-only" ]; then
+  MOCK="${MOCK_URL:-http://localhost:8001}"
   curl -fsS "$MOCK/healthz"; echo
   curl -fsS -X POST "$MOCK/text-to-speech" \
     -H 'Content-Type: application/json' \
@@ -11,4 +12,5 @@ if [ "${1:-}" = "--mock-only" ]; then
   echo "mock speech round-trip ok"
   exit 0
 fi
-BASE_URL="$BASE" python scripts/call_demo.py
+OPENSEARCH_URL="$OPENSEARCH_URL" python scripts/ingest-policies.py
+BASE_URL="$BASE_URL" python scripts/call_demo.py

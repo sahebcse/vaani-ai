@@ -72,6 +72,7 @@ services:
       VAANI_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       VAANI_OPENSEARCH_URL: http://opensearch:9200
       VAANI_SARVAM_BASE_URL: http://mock-sarvam:8001
+      VAANI_RETRIEVER: opensearch
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8080/healthz')\""]
       interval: 15s, timeout: 5s, retries: 10, start_period: 20s

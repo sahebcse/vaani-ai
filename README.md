@@ -27,7 +27,7 @@ ruff check . && ruff format --check . && mypy vaani mock-sarvam && pytest
 - [x] Unit 2 (v0.2): speech provider abstraction + Mock Sarvam
 - [x] Unit 3 (v0.3): WebSocket call loop
 - [ ] Unit 4 (v0.4): LangGraph agent + tools
-- [ ] Unit 5 (v0.5): RAG (LangChain + OpenSearch)
+- [x] Unit 5 (v0.5): RAG (LangChain + OpenSearch)
 - [ ] Unit 6 (v0.6): multi-tenancy, auth & admin REST APIs
 - [ ] Unit 7 (v0.7): background jobs, eval harness & feedback loops
 - [ ] Unit 8 (v0.8): ops console, observability, quality gates

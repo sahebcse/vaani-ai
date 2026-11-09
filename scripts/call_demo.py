@@ -33,7 +33,8 @@ async def main() -> int:
         await ws.send(audio)
         first = json.loads(await ws.recv())
         assert first["type"] == "reply", first
-        assert first["text"] == expected_text, (first["text"], expected_text)
+        assert first["text"], "reply must not be empty"
+        assert first["citations"], "reply must cite a policy doc"
         raw = await ws.recv()
         assert isinstance(raw, bytes) and len(raw) > 44, "expected WAV bytes"
         await ws.send(json.dumps({"type": "end"}))

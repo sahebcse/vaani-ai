@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     sarvam_base_url: str = "http://localhost:8001"
     sarvam_api_key: str = "local-mock"
     sarvam_timeout_seconds: float = 10.0
+    retriever: str = "keyword"
 
     default_tenant: str = "demo-nbfc"
     eval_score_threshold: float = 0.7
