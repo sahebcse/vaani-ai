@@ -1,0 +1,22 @@
+{
+ "92d065e262f289d59add69e58dea89449fc190f761b9c7b820188ae3130f3b50": {
+  "text": "मेरा लोन का पेमेंट बाकी है",
+  "language": "hi",
+  "confidence": 0.99
+ },
+ "8033c9c459b80d3616131baaf9dd0a698a98cf3d307f013188093586c4f2812e": {
+  "text": "my account balance is overdue",
+  "language": "en",
+  "confidence": 0.99
+ },
+ "d3ef610a6b52e0c6e6a1a7d19d99abbd9da235efeb41b9e5e36a76e7c48d0e0e": {
+  "text": "नमस्ते, मैं वाणी हूँ",
+  "language": "hi",
+  "confidence": 0.99
+ },
+ "default": {
+  "text": "मेरा लोन का पेमेंट बाकी है",
+  "language": "hi",
+  "confidence": 0.9
+ }
+}

@@ -1,5 +1,6 @@
 import os
 
+import pytest
 from fastapi.testclient import TestClient
 
 from vaani import __version__
@@ -7,18 +8,18 @@ from vaani.config import Settings, get_settings
 from vaani.main import create_app
 
 
-def test_version_pinned():
+def test_version_pinned() -> None:
     assert __version__ == "0.1.0"
 
 
-def test_health_endpoint():
+def test_health_endpoint() -> None:
     client = TestClient(create_app())
     resp = client.get("/healthz")
     assert resp.status_code == 200
     assert resp.json() == {"status": "ok", "app": "vaani", "version": "0.1.0"}
 
 
-def test_settings_defaults():
+def test_settings_defaults() -> None:
     s = Settings()
     assert s.postgres_dsn.startswith("postgresql://")
     assert s.redis_url.startswith("redis://")
@@ -27,7 +28,7 @@ def test_settings_defaults():
     assert 0.0 <= s.eval_score_threshold <= 1.0
 
 
-def test_settings_env_override(monkeypatch):
+def test_settings_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("VAANI_LOG_LEVEL", "DEBUG")
     monkeypatch.setenv("VAANI_SARVAM_TIMEOUT_SECONDS", "3.5")
     s = Settings()
@@ -35,6 +36,6 @@ def test_settings_env_override(monkeypatch):
     assert s.sarvam_timeout_seconds == 3.5
 
 
-def test_get_settings_returns_settings():
+def test_get_settings_returns_settings() -> None:
     assert isinstance(get_settings(), Settings)
     assert os.getenv("VAANI_APP_NAME", "vaani") == get_settings().app_name
