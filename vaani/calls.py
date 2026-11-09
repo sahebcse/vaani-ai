@@ -12,15 +12,21 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import logging
+import time
 from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from vaani.agent import AgentRunner
 from vaani.ledger import CallLog, CallRecord
+from vaani.logging import bind
+from vaani.metrics import metrics
 from vaani.sessions import CallSession, SessionStore
 from vaani.speech import SarvamError, SpeechProvider
 from vaani.tenancy import TenantStore
+
+logger = logging.getLogger("vaani.calls")
 
 router = APIRouter()
 
@@ -53,6 +59,8 @@ class CallManager:
             await websocket.close(code=4403)
             return
         session = self._sessions.create(tenant)
+        metrics.record_call_start()
+        logger.info("call started", extra=bind(session.call_id, tenant=tenant))
         try:
             while True:
                 try:
@@ -78,12 +86,16 @@ class CallManager:
                     escalated=session.escalated,
                 )
             )
+            metrics.record_call_end()
+            logger.info("call ended", extra=bind(session.call_id, tenant=session.tenant))
             await self._cleanup(session)
 
     async def _on_audio(self, session: CallSession, websocket: WebSocket, data: bytes) -> None:
         session.frames_received += 1
+        metrics.record_frame()
         if session.busy:
             session.frames_dropped += 1
+            metrics.record_drop()
             await websocket.send_json({"type": "dropped", "sequence": session.next_sequence})
             session.next_sequence += 1
             return
@@ -96,20 +108,27 @@ class CallManager:
     async def _process_frame(
         self, session: CallSession, websocket: WebSocket, data: bytes, sequence: int
     ) -> None:
+        start = time.monotonic()
         try:
             transcript = await self._provider.atranscribe(data)
         except SarvamError as exc:
             session.errors += 1
+            metrics.record_error("transcribe")
+            logger.warning("transcribe failed", extra=bind(session.call_id, error=str(exc)))
             await websocket.send_json({"type": "error", "stage": "transcribe", "detail": str(exc)})
             return
+        metrics.observe_transcribe(time.monotonic() - start)
         session.transcript_parts.append(transcript.text)
+        started = time.monotonic()
         reply = await self._agent.run(transcript.text, transcript.language, session.tenant)
+        metrics.observe_agent(time.monotonic() - started)
         if reply.escalated:
             session.escalated = True
         try:
             audio = await self._provider.asynthesize(reply.text, transcript.language)
         except SarvamError as exc:
             session.errors += 1
+            metrics.record_error("synthesize")
             await websocket.send_json({"type": "error", "stage": "synthesize", "detail": str(exc)})
             return
         await websocket.send_json(

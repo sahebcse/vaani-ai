@@ -30,6 +30,6 @@ ruff check . && ruff format --check . && mypy vaani mock-sarvam && pytest
 - [x] Unit 5 (v0.5): RAG (LangChain + OpenSearch)
 - [ ] Unit 6 (v0.6): multi-tenancy, auth & admin REST APIs
 - [ ] Unit 7 (v0.7): background jobs, eval harness & feedback loops
-- [ ] Unit 8 (v0.8): ops console, observability, quality gates
+- [x] Unit 8 (v0.8): ops console, observability, quality gates
 - [ ] Unit 9 (v0.9): CDC analytics + chaos tests
 - [ ] Unit 10 (v1.0): Terraform, load validation & polish

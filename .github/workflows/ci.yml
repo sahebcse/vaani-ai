@@ -30,6 +30,39 @@ jobs:
       - run: pip install -r requirements.txt -r requirements-dev.txt
       - run: pytest tests/contract
 
+  frontend:
+    name: Ops console (build, unit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: ops-console/package-lock.json
+      - run: npm install
+        working-directory: ops-console
+      - run: npm run test:run
+        working-directory: ops-console
+      - run: npm run build
+        working-directory: ops-console
+
+  sonar:
+    name: SonarQube static analysis
+    runs-on: ubuntu-latest
+    if: ${{ secrets.SONAR_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12", cache: pip}
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: pytest -q --cov=vaani --cov-report=xml:coverage.xml --cov-fail-under=100
+      - uses: sonarsource/sonarqube-scan-action@v4
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
   e2e:
     name: Compose + demo call
     runs-on: ubuntu-latest

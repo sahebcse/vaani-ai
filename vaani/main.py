@@ -2,7 +2,8 @@
 
 import os
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from vaani import __version__, admin, calls
 from vaani.agent import AgentRunner
@@ -10,6 +11,8 @@ from vaani.config import Settings, get_settings
 from vaani.jobs import FeedbackStore, create_scheduler
 from vaani.ledger import CallLog
 from vaani.llm import MockResponder
+from vaani.logging import setup_logging
+from vaani.metrics import metrics
 from vaani.sessions import InMemorySessionStore
 from vaani.speech import SarvamProvider, SpeechProvider
 from vaani.tenancy import InMemoryTenantStore, Tenant
@@ -75,6 +78,7 @@ def create_app(
     tenant: str | None = None,
 ) -> FastAPI:
     settings: Settings = get_settings()
+    setup_logging(settings.log_level)
     app = FastAPI(title="Vaani", version=__version__)
     sessions = InMemorySessionStore()
     tenants = _seed_tenants()
@@ -103,6 +107,10 @@ def create_app(
     if os.environ.get("VAANI_SCHEDULER") == "on":
         scheduler = create_scheduler(call_log, settings.archive_path)
         scheduler.start()
+
+    @app.get("/metrics")
+    def prometheus_metrics() -> Response:
+        return Response(generate_latest(metrics.registry), media_type=CONTENT_TYPE_LATEST)
 
     @app.get("/healthz")
     def healthz() -> dict[str, object]:

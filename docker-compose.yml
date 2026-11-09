@@ -56,6 +56,27 @@ services:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8001/healthz')\""]
       interval: 10s, timeout: 5s, retries: 10
 
+  ops-console:
+    build: {context: ./ops-console}
+    container_name: vaani-ops-console
+    ports: ["3000:80"]
+    depends_on:
+      vaani-app: {condition: service_healthy}
+
+  prometheus:
+    image: prom/prometheus:v3.0.0
+    container_name: vaani-prometheus
+    ports: ["9090:9090"]
+    volumes: ["./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro"]
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    container_name: vaani-grafana
+    ports: ["3001:3000"]
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/provisioning/dashboards/vaani.json:/etc/grafana/provisioning/dashboards/vaani.json:ro
+
   vaani-app:
     build: {context: .}
     container_name: vaani-app

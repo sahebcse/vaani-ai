@@ -1,0 +1,32 @@
+{
+  "title": "Vaani Calls",
+  "uid": "vaani-calls",
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "id": 1,
+      "title": "Call starts / min",
+      "type": "timeseries",
+      "targets": [{ "expr": "rate(vaani_calls_started_total[5m])" }]
+    },
+    {
+      "id": 2,
+      "title": "Calls in progress",
+      "type": "timeseries",
+      "targets": [{ "expr": "vaani_calls_in_progress" }]
+    },
+    {
+      "id": 3,
+      "title": "Transcribe p99 (s)",
+      "type": "timeseries",
+      "targets": [{ "expr": "histogram_quantile(0.99, rate(vaani_transcribe_seconds_bucket[5m]))" }]
+    },
+    {
+      "id": 4,
+      "title": "Dropped frames",
+      "type": "timeseries",
+      "targets": [{ "expr": "rate(vaani_frames_dropped_total[5m])" }]
+    }
+  ]
+}
