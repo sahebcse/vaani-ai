@@ -4,7 +4,7 @@ Backpressure: one in-flight frame per call. A frame arriving while the
 previous one is still being processed is dropped and counted (coalescing —
 the standard choice for live audio, where stale frames are worthless).
 The summary reports received/dropped/errors so drops are always visible.
-Unit 3 echo policy: re-synthesize the transcript (agent brain lands in U4).
+Unit 4+: frames are answered by the LangGraph agent (was echo in Unit 3).
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from vaani.agent import AgentRunner
 from vaani.sessions import CallSession, SessionStore
 from vaani.speech import SarvamError, SpeechProvider
 
@@ -30,9 +31,12 @@ async def call_stream(websocket: WebSocket) -> None:
 
 
 class CallManager:
-    def __init__(self, provider: SpeechProvider, sessions: SessionStore) -> None:
+    def __init__(
+        self, provider: SpeechProvider, sessions: SessionStore, agent: AgentRunner
+    ) -> None:
         self._provider = provider
         self._sessions = sessions
+        self._agent = agent
 
     async def handle(self, websocket: WebSocket, tenant: str) -> None:
         await websocket.accept()
@@ -76,13 +80,21 @@ class CallManager:
             await websocket.send_json({"type": "error", "stage": "transcribe", "detail": str(exc)})
             return
         session.transcript_parts.append(transcript.text)
+        reply = await self._agent.run(transcript.text, transcript.language, session.tenant)
         try:
-            audio = await self._provider.asynthesize(transcript.text, transcript.language)
+            audio = await self._provider.asynthesize(reply.text, transcript.language)
         except SarvamError as exc:
             session.errors += 1
             await websocket.send_json({"type": "error", "stage": "synthesize", "detail": str(exc)})
             return
-        await websocket.send_json({"type": "reply", "sequence": sequence, "text": transcript.text})
+        await websocket.send_json(
+            {
+                "type": "reply",
+                "sequence": sequence,
+                "text": reply.text,
+                "citations": reply.citations,
+            }
+        )
         await websocket.send_bytes(audio.data)
 
     async def _on_control(self, session: CallSession, websocket: WebSocket, text: str) -> bool:

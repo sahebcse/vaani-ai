@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import WebSocketDisconnect
 from fastapi.testclient import TestClient
 
+from vaani.agent import AgentReply, AgentRunner
 from vaani.calls import CallManager
 from vaani.main import create_app
 from vaani.sessions import InMemorySessionStore
@@ -67,7 +68,15 @@ def make_manager(
 ) -> tuple[CallManager, FakeProvider, InMemorySessionStore]:
     fake = provider or FakeProvider()
     store = InMemorySessionStore()
-    return CallManager(fake, store), fake, store  # type: ignore[arg-type]
+
+    class EchoAgent(AgentRunner):
+        def __init__(self) -> None:
+            pass
+
+        async def run(self, text: str, language: str, tenant: str) -> AgentReply:
+            return AgentReply(text=text, citations=[], escalated=False)
+
+    return CallManager(fake, store, EchoAgent()), fake, store  # type: ignore[arg-type]
 
 
 async def test_audio_frame_gets_reply_and_summary() -> None:
@@ -76,7 +85,12 @@ async def test_audio_frame_gets_reply_and_summary() -> None:
     await manager.handle(ws, "t1")  # type: ignore[arg-type]
     assert ws.accepted
     assert ws.sent_bytes == [b"audio:heard-3"]
-    assert ws.sent_json[0] == {"type": "reply", "sequence": 1, "text": "heard-3"}
+    assert ws.sent_json[0] == {
+        "type": "reply",
+        "sequence": 1,
+        "text": "heard-3",
+        "citations": [],
+    }
     assert ws.sent_json[-1]["type"] == "summary"
     assert ws.sent_json[-1]["frames_received"] == 1
     assert ws.sent_json[-1]["transcript"] == "heard-3"
@@ -183,7 +197,8 @@ def test_real_transport_smoke() -> None:
         ws.send_bytes(b"\x01\x02")
         first = ws.receive_json()
         assert first["type"] == "reply"
-        assert ws.receive_bytes() == b"audio:heard-2"
+        assert "heard-2" in first["text"]
+        assert ws.receive_bytes() == b"audio:" + first["text"].encode()
         ws.send_text('{"type": "end"}')
         summary = ws.receive_json()
         assert summary["type"] == "summary"

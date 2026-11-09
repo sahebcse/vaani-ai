@@ -1,11 +1,47 @@
 """ASGI entrypoint. Routers land here as units merge; keep this file thin."""
 
+import os
+
 from fastapi import FastAPI
 
 from vaani import __version__, calls
+from vaani.agent import AgentRunner
 from vaani.config import Settings, get_settings
+from vaani.llm import MockResponder
 from vaani.sessions import InMemorySessionStore
 from vaani.speech import SarvamProvider, SpeechProvider
+from vaani.tools import (
+    Account,
+    InMemoryAccountStore,
+    KeywordRetriever,
+    MemoryEscalationSink,
+    PolicyDoc,
+)
+
+
+def _load_policy_docs() -> list[PolicyDoc]:
+    base = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "fixtures", "policies"
+    )
+    docs: list[PolicyDoc] = []
+    try:
+        names = sorted(os.listdir(base))
+    except OSError:
+        return docs
+    for name in names:
+        if not name.endswith(".md") or name == "README.md":
+            continue
+        with open(os.path.join(base, name), encoding="utf-8") as fh:
+            docs.append(PolicyDoc(text=fh.read(), source=name))
+    return docs
+
+
+def _demo_accounts() -> dict[str, Account]:
+    return {
+        "caller": Account(
+            user_id="caller", name="Demo User", balance_due=1250.0, due_date="2026-12-01"
+        )
+    }
 
 
 def create_app(
@@ -20,7 +56,13 @@ def create_app(
         settings.sarvam_api_key,
         settings.sarvam_timeout_seconds,
     )
-    app.state.call_manager = calls.CallManager(active, sessions)
+    agent = AgentRunner(
+        MockResponder(),
+        KeywordRetriever(_load_policy_docs()),
+        InMemoryAccountStore(_demo_accounts()),
+        MemoryEscalationSink(),
+    )
+    app.state.call_manager = calls.CallManager(active, sessions, agent)
     app.state.default_tenant = tenant or settings.default_tenant
     app.include_router(calls.router)
 
