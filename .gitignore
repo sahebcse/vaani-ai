@@ -13,3 +13,6 @@ frontend/dist/
 target/
 .DS_Store
 **/.terraform/
+\
+jmeter.log\
+*.jtl
