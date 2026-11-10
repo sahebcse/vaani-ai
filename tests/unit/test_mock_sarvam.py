@@ -30,6 +30,15 @@ def fixture_bytes(name: str) -> bytes:
     return path.read_bytes()
 
 
+def test_manifest_matches_wav_files_on_disk() -> None:
+    """Guards fixture regeneration drift (sha256(file) must equal manifest key)."""
+    import hashlib
+
+    for name in ("hindi-collection.wav", "english-balance.wav", "hindi-greeting.wav"):
+        digest = hashlib.sha256(fixture_bytes(name)).hexdigest()
+        assert digest in manifest(), name
+
+
 def manifest() -> dict[str, Any]:
     path = Path(__file__).resolve().parents[2] / "fixtures" / "audio" / "manifest.json"
     raw: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))

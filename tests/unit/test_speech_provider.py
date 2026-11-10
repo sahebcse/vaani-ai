@@ -78,6 +78,24 @@ async def test_transcribe_timeout_raises_after_retries() -> None:
     assert route.call_count == 3
 
 
+async def test_transcribe_reset_mid_stream_becomes_sarvam_error() -> None:
+    async with respx.mock:
+        route = respx.post(f"{BASE}/speech-to-text").mock(
+            side_effect=httpx.RemoteProtocolError("peer closed connection without response")
+        )
+        with pytest.raises(SarvamError, match="after retries"):
+            await provider().atranscribe(b"wav-bytes")
+    assert route.call_count == 3
+
+
+async def test_translate_read_error_becomes_sarvam_error() -> None:
+    async with respx.mock:
+        route = respx.post(f"{BASE}/translate").mock(side_effect=httpx.ReadError("reset"))
+        with pytest.raises(SarvamError, match="after retries"):
+            await provider().atranslate("x", "en", "hi")
+    assert route.call_count == 3
+
+
 async def test_synthesize_maps_audio() -> None:
     raw = b"RIFF....fake-wav"
     async with respx.mock:

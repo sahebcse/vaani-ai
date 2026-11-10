@@ -122,7 +122,17 @@ def test_search_fuses_lexical_and_vector() -> None:
     # tenant filter + knn candidates flow into the request bodies
     lex_body = client.search.call_args_list[0].kwargs["body"]
     knn_body = client.search.call_args_list[1].kwargs["body"]
-    assert lex_body["query"]["bool"]["filter"] == [{"term": {"tenant": "t1"}}]
+    assert lex_body["query"]["bool"]["filter"] == [
+        {
+            "bool": {
+                "should": [{"term": {"tenant": "t1"}}, {"term": {"tenant": "shared"}}],
+                "minimum_should_match": 1,
+            }
+        }
+    ]
+    knn_query = knn_body["query"]["knn"]
+    assert knn_query["embedding"]["k"] == 50
+    assert knn_query["embedding"]["filter"] == lex_body["query"]["bool"]["filter"][0]
     assert knn_body["query"]["knn"]["embedding"]["k"] == 50
 
 
@@ -130,6 +140,17 @@ def test_search_empty_results() -> None:
     client = mock_client()
     client.search.return_value = {"hits": {"hits": []}}
     assert OpenSearchStore(client, "idx").search([0.1], "q", "t", 3) == []
+
+
+def test_fuse_dedupes_shared_and_tenant_hits() -> None:
+    store = OpenSearchStore(mock_client(), "idx")
+    fused = store._fuse(
+        {"hits": {"hits": [hit("shared doc", "s.md", 1.0)]}},
+        {"hits": {"hits": [hit("shared doc", "s.md", 0.5)]}},
+        k=3,
+    )
+    assert [(d.text, d.source) for d in fused] == [("shared doc", "s.md")]
+    assert fused[0].score == pytest.approx(1.0 * 0.6 + 1.0 * 0.4)
 
 
 class FakeStore(DocumentStore):

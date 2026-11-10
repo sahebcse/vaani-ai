@@ -56,16 +56,20 @@ async def test_call_survives_provider_death(mock_image: str) -> None:
             ws.send_bytes(b"\x01\x02\x03")
 
             def killer() -> None:
+                # SIGKILL, not stop(): graceful shutdown would wait forever
+                # on the open connection — a dead provider does not drain.
                 time.sleep(0.5)
-                container.stop()
+                container.get_wrapped_container().kill()
 
             thread = threading.Thread(target=killer, daemon=True)
             thread.start()
-            first = ws.receive_json()
+            try:
+                first = ws.receive_json()
+            finally:
+                thread.join(timeout=30)
             assert first["type"] == "error", first
             assert first["stage"] == "transcribe"
             ws.send_text('{"type": "end"}')
             summary = ws.receive_json()
             assert summary["type"] == "summary"
             assert summary["errors"] >= 1
-            thread.join(timeout=30)

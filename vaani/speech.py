@@ -97,7 +97,9 @@ class SarvamProvider(SpeechProvider):
                             headers=self._auth(),
                             timeout=self._timeout,
                         )
-            except (httpx.TimeoutException, httpx.ConnectError) as exc:
+            except httpx.HTTPError as exc:
+                # Any transport failure (timeout, refused, reset mid-stream,
+                # truncated response) is a provider failure, never a crash.
                 last_error = exc
             else:
                 if resp.status_code < 400:

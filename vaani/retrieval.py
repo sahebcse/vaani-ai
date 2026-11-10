@@ -137,6 +137,13 @@ class OpenSearchStore(DocumentStore):
             )
 
     def search(self, vector: list[float], text: str, tenant: str, k: int) -> list[ScoredDoc]:
+        # Tenant docs plus the shared corpus are visible to every tenant.
+        tenant_filter: dict[str, Any] = {
+            "bool": {
+                "should": [{"term": {"tenant": tenant}}, {"term": {"tenant": "shared"}}],
+                "minimum_should_match": 1,
+            }
+        }
         lexical = self._client.search(
             index=self._index,
             body={
@@ -144,7 +151,7 @@ class OpenSearchStore(DocumentStore):
                 "query": {
                     "bool": {
                         "must": [{"match": {"text": text}}],
-                        "filter": [{"term": {"tenant": tenant}}],
+                        "filter": [tenant_filter],
                     }
                 },
             },
@@ -154,8 +161,13 @@ class OpenSearchStore(DocumentStore):
             body={
                 "size": self._knn_candidates,
                 "query": {
-                    "knn": {"embedding": {"vector": vector, "k": self._knn_candidates}},
-                    "filter": [{"term": {"tenant": tenant}}],
+                    "knn": {
+                        "embedding": {
+                            "vector": vector,
+                            "k": self._knn_candidates,
+                            "filter": tenant_filter,
+                        }
+                    }
                 },
             },
         )
